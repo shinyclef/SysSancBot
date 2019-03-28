@@ -83,7 +83,7 @@ namespace SysSancBot
 
             await client.LoginAsync(TokenType.Bot, Config.DiscordToken);
             await client.StartAsync();
-            await services.GetRequiredService<CommandHandlingService>().InitializeAsync();
+            await services.GetRequiredService<MessageListener>().InitializeAsync();
             await Task.Delay(-1);
         }
 
@@ -117,7 +117,7 @@ namespace SysSancBot
             return new ServiceCollection()
                 .AddSingleton<DiscordSocketClient>()
                 .AddSingleton<CommandService>()
-                .AddSingleton<CommandHandlingService>()
+                .AddSingleton<MessageListener>()
                 .AddSingleton<HttpClient>()
                 .AddSingleton<PictureService>()
                 .AddSingleton<IDataService>(new SQLiteDataService())

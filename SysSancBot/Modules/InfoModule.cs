@@ -6,6 +6,19 @@ namespace SysSancBot.Modules
 {
     public class InfoModule : ModuleBase<SocketCommandContext>
     {
+        [Command("SetName")]
+        [Summary("Set's the bot's name, theoreetically....")]
+        public Task SetName([Remainder] [Summary("Name to set the bot to.")] string newName)
+        {
+            return Context.Client.CurrentUser.ModifyAsync(x => x.Username = newName);
+        }
+
+        [Command("You")]
+        public Task You()
+        {
+            return ReplyAsync(Context.Client.CurrentUser.Username);
+        }
+
         [Command("say")]
         [Summary("Echoes a message.")]
         public Task SayAsync([Remainder] [Summary("The text to echo")] string msg)

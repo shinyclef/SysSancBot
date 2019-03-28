@@ -8,13 +8,18 @@ using System.Threading.Tasks;
 
 namespace SysSancBot.Services
 {
-    public class CommandHandlingService
+    public class MessageListener
     {
         private readonly CommandService commands;
         private readonly DiscordSocketClient discord;
         private readonly IServiceProvider services;
 
-        public CommandHandlingService(IServiceProvider services)
+        public delegate string MyDel(string str);
+
+        public delegate void MsgHandler(SocketMessage msg, SocketCommandContext context);
+        public event MsgHandler OnMsgReceived;
+
+        public MessageListener(IServiceProvider services)
         {
             this.services = services;
             discord = services.GetRequiredService<DiscordSocketClient>();
@@ -47,13 +52,15 @@ namespace SysSancBot.Services
             }
 
             var argPos = 0; // This value holds the offset where the prefix ends
-            if (!message.HasCharPrefix('!', ref argPos))
-            {
-                return;
-            }
-
             var context = new SocketCommandContext(discord, message);
-            await commands.ExecuteAsync(context, argPos, services); // we will handle the result in CommandExecutedAsync,
+            if (message.HasCharPrefix('!', ref argPos))
+            {
+                await commands.ExecuteAsync(context, argPos, services); // we will handle the result in CommandExecutedAsync,        
+            }
+            else
+            {
+                OnMsgReceived?.Invoke(rawMessage, context);
+            }
         }
 
         public async Task CommandExecutedAsync(Optional<CommandInfo> command, ICommandContext context, IResult result)
