@@ -1,6 +1,6 @@
 ﻿namespace SysSancBot.Services
 {
-    public class SQLiteDataService : IDataService
+    public class SQLiteDataService // : IDataService
     {
     }
 }

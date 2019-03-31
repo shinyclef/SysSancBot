@@ -1,11 +1,40 @@
 ﻿using Discord.Commands;
 using Discord.WebSocket;
+using Microsoft.Extensions.DependencyInjection;
+using SysSancBot.Services;
+using System;
 using System.Threading.Tasks;
 
 namespace SysSancBot.Modules
 {
     public class InfoModule : ModuleBase<SocketCommandContext>
     {
+        private readonly PluralService pluralSrv;
+
+        public InfoModule(IServiceProvider services)
+        {
+            pluralSrv = services.GetRequiredService<PluralService>();
+        }
+
+        [Command("Help")]
+        public Task Help()
+        {
+            string msg = "```Commands:\n- ReloadTriggerLists: Reloads all trigger lists.```";
+            return ReplyAsync(msg);
+        }
+
+        [Command("Singular")]
+        public Task Singular([Remainder] [Summary("The word for which you want the singular form.")] string word)
+        {
+            return ReplyAsync($"I think the singular form of **{word.ToLower()}** is **{pluralSrv.Singularize(word.ToLower())}**.");
+        }
+
+        [Command("Plural")]
+        public Task Plural([Remainder] [Summary("The word for which you want the plural form.")] string word)
+        {
+            return ReplyAsync($"I think the plural form of **{word.ToLower()}** is **{pluralSrv.Pluralize(word.ToLower())}**.");
+        }
+
         [Command("SetName")]
         [Summary("Set's the bot's name, theoreetically....")]
         public Task SetName([Remainder] [Summary("Name to set the bot to.")] string newName)

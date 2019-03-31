@@ -1,6 +1,7 @@
 ﻿using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
+using Google.Apis.Auth.OAuth2;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using SysSancBot.DTO;
@@ -14,9 +15,11 @@ namespace SysSancBot
 {
     public class Program
     {
+        public const string CommandPrefix = "!ss ";
         private const string ConfigFileName = "config.json";
 
         public static ConfigDto Config { get; private set; }
+        public static UserCredential credential { get; private set; }
 
         public static void Main(string[] args)
         {
@@ -83,7 +86,7 @@ namespace SysSancBot
 
             await client.LoginAsync(TokenType.Bot, Config.DiscordToken);
             await client.StartAsync();
-            await services.GetRequiredService<MessageListener>().InitializeAsync();
+            await services.GetRequiredService<CommandListener>().InitializeAsync();
             await Task.Delay(-1);
         }
 
@@ -117,10 +120,11 @@ namespace SysSancBot
             return new ServiceCollection()
                 .AddSingleton<DiscordSocketClient>()
                 .AddSingleton<CommandService>()
-                .AddSingleton<MessageListener>()
+                .AddSingleton<CommandListener>()
                 .AddSingleton<HttpClient>()
                 .AddSingleton<PictureService>()
-                .AddSingleton<IDataService>(new SQLiteDataService())
+                .AddSingleton<IDataService>(new GoogleSheetDataService())
+                .AddSingleton<PluralService>()
                 .BuildServiceProvider();
         }
     }
