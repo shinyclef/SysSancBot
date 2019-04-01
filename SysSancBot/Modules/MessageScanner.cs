@@ -2,10 +2,13 @@
 using Discord.Commands;
 using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
+using SysSancBot.DTO;
+using SysSancBot.Enums;
 using SysSancBot.Services;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -15,12 +18,16 @@ namespace SysSancBot.Modules
     {
         private readonly DiscordSocketClient discord;
         private readonly IDataService data;
-        private readonly PluralService pluralSrv;
+        private readonly StemmingService stemSrv;
 
         private StringBuilder sb;
         private char[] trimChars;
 
-        private HashSet<string> simpleWords;
+        private HashSet<string> monitoredChannels;
+        private HashSet<string> adminChannels;
+
+        private Dictionary<string, ChannelRole> channels { get { return data.GetChannels(); } }
+        private Dictionary<string, TriggerData> triggerWords { get { return data.GetTriggerWords(); } }
 
         public static MessageScanner Instance { get; private set; }
 
@@ -28,11 +35,12 @@ namespace SysSancBot.Modules
         {
             discord = services.GetRequiredService<DiscordSocketClient>();
             data = services.GetRequiredService<IDataService>();
-            pluralSrv = services.GetRequiredService<PluralService>();
+            stemSrv = services.GetRequiredService<StemmingService>();
 
             sb = new StringBuilder();
             trimChars = new char[] { '.', ',', '?', '!', ';', ':', '"', '\'', '(', ')', '[', ']', '{', '}' };
 
+            ReloadChannelTypes();
             ReloadTriggerLists();
             discord.MessageReceived += ProcessMessage;
             Instance = this;
@@ -45,7 +53,26 @@ namespace SysSancBot.Modules
 
         public void ReloadSimpleWords()
         {
-            simpleWords = data.GetSimpleWords();
+            data.GetTriggerWords(true);
+        }
+
+        public void ReloadChannelTypes()
+        {
+            data.GetChannels(true);
+            monitoredChannels = new HashSet<string>();
+            adminChannels = new HashSet<string>();
+
+            foreach (KeyValuePair<string, ChannelRole> pair in channels)
+            {
+                if (pair.Value == ChannelRole.Safe)
+                {
+                    monitoredChannels.Add(pair.Key);
+                }
+                else if (pair.Value == ChannelRole.Admin)
+                {
+                    adminChannels.Add(pair.Key);
+                }
+            }
         }
 
         private async Task ProcessMessage(SocketMessage rawMsg)
@@ -64,32 +91,57 @@ namespace SysSancBot.Modules
                 return;
             }
 
-            if (msg.Channel.Name == "bot-testing")
+            string channelName = msg.Channel.Name;
+            SanitisedMsgResult result;
+            if (monitoredChannels.Contains(channelName))
             {
                 var sw = new Stopwatch();
                 sw.Start();
-                string content = SanatiseMessage(msg.Content);
+                result = SanatiseMessage(msg);
+                
                 sw.Stop();
-                if (content == null)
+                if (result == null || result.Action == TriggerAction.None)
                 {
                     return;
                 }
 
-                await msg.Channel.DeleteMessageAsync(msg);
-
-                string author = msg.Author.Username;
                 SocketGuildUser user = context.Guild.GetUser(discord.CurrentUser.Id);
-                await user.ModifyAsync(x => x.Nickname = author);
-                await context.Channel.SendMessageAsync($"```Orig: {msg.Content}\nEdit: {content}\nI took {sw.Elapsed.TotalMilliseconds}ms.```");
-                //await context.Channel.SendMessageAsync(content);
-                await user.ModifyAsync(x => x.Nickname = context.Client.CurrentUser.Username);
+                if (result.Action == TriggerAction.Inform)
+                {
+                    await SendAdminAlert();
+                }
+                else if (result.Action == TriggerAction.Censor)
+                {
+                    await SendAdminAlert();
+                    await msg.Channel.DeleteMessageAsync(msg);
+                    await user.ModifyAsync(x => x.Nickname = msg.Author.Username);
+                    await context.Channel.SendMessageAsync(result.GetReplyMsg(context));
+                    await user.ModifyAsync(x => x.Nickname = context.Client.CurrentUser.Username);
+                }
+            }
+
+            async Task SendAdminAlert()
+            {
+                foreach (string adminChannel in adminChannels)
+                {
+                    SocketTextChannel channel = context.Guild.TextChannels.FirstOrDefault(c => c.Name == adminChannel);
+                    if (channel != null)
+                    {
+                        await channel.SendMessageAsync(null, false, result.GetAdminEmbed());
+                    }
+                }
             }
         }
 
-        private string SanatiseMessage(string msg)
+        private SanitisedMsgResult SanatiseMessage(SocketUserMessage msg)
         {
-            string[] lines = msg.Split('\n');
+            
+            string[] lines = msg.Content.Split('\n');
             bool triggerWasFound = false;
+
+            TriggerAction maxAction = TriggerAction.None;
+            HashSet<string> topics = null;
+
             for (int l = 0; l < lines.Length; l++)
             {
                 if (l > 0)
@@ -105,8 +157,18 @@ namespace SysSancBot.Modules
                     string word = words[i].TrimEnd(trimChars);
                     string suffix = words[i].Substring(word.Length);
                     string lower = word.ToLower();
-                    if (simpleWords.Contains(lower) || simpleWords.Contains(pluralSrv.Singularize(lower)))
+
+                    TriggerData data;
+                    if (triggerWords.TryGetValue(lower, out data) || triggerWords.TryGetValue(stemSrv.GetStem(lower), out data))
                     {
+                        maxAction = (TriggerAction)Math.Max((int)maxAction, (int)data.Action);
+                        if (topics == null)
+                        {
+                            topics = new HashSet<string>();
+                        }
+
+                        topics.Add(data.Category);
+
                         if (i != 0)
                         {
                             sb.Append(prevSuffix).Append(' ');
@@ -148,9 +210,46 @@ namespace SysSancBot.Modules
                 sb.Append(prevSuffix);
             }
 
-            string result = triggerWasFound ? sb.ToString() : null;
+            SanitisedMsgResult result = null;
+            if (triggerWasFound)
+            {
+                result = new SanitisedMsgResult()
+                {
+                    Msg = msg,
+                    Sanitised = triggerWasFound ? sb.ToString() : null,
+                    Action = maxAction,
+                    Topics = topics,
+                };
+            }
+            
             sb.Clear();
             return result;
+        }
+
+        private class SanitisedMsgResult
+        {
+            public SocketUserMessage Msg;
+            public string Sanitised;
+            public HashSet<string> Topics;
+            public TriggerAction Action;
+
+            public string TopicsString { get { return string.Join(", ", Topics); } }
+
+            public string GetReplyMsg(SocketCommandContext context)
+            {
+                return $"TW: {string.Join(", ", Topics)}\n{Sanitised}\n\n`Added the TW for you. ~ {context.Client.CurrentUser.Username}`";
+            }
+
+            public Embed GetAdminEmbed()
+            {
+                var builder = new EmbedBuilder()
+                    .AddField($"Topics:", TopicsString, false)
+                    .AddField($"{Msg.Author.Username} said:", Sanitised, false)
+                    .AddField("Jump:", Msg.GetJumpUrl(), false)
+                    .WithTitle(Action == TriggerAction.Inform ? "FYI, thought you might like to know?" : "Heads up, I censored something!")
+                    .WithColor(Action == TriggerAction.Inform ? Color.Green : Color.Orange);
+                return builder.Build();
+            }
         }
     }
 }

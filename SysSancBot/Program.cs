@@ -124,7 +124,7 @@ namespace SysSancBot
                 .AddSingleton<HttpClient>()
                 .AddSingleton<PictureService>()
                 .AddSingleton<IDataService>(new GoogleSheetDataService())
-                .AddSingleton<PluralService>()
+                .AddSingleton<StemmingService>()
                 .BuildServiceProvider();
         }
     }

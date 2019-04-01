@@ -3,6 +3,9 @@ using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
 using Google.Apis.Util.Store;
+using SysSancBot.Common;
+using SysSancBot.DTO;
+using SysSancBot.Enums;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,6 +16,12 @@ namespace SysSancBot.Services
     public class GoogleSheetDataService : IDataService
     {
         private const string credentialJson = "googlesheets.json";
+        private const string triggerListRange = "TriggerList";
+        private const string channelListRange = "ChannelList";
+
+        private Dictionary<string, TriggerData> triggerWords;
+        private Dictionary<string, ChannelRole> channels;
+
         private UserCredential credential;
 
         // If modifying these scopes, delete your previously saved credentials
@@ -51,36 +60,78 @@ namespace SysSancBot.Services
             });
         }
 
-        public HashSet<string> GetSimpleWords()
+        public Dictionary<string, TriggerData> GetTriggerWords(bool forceReload = false)
         {
-            var set = new HashSet<string>();
-
-            // Define request parameters.
-            String range = "SimpleWordsList";
-            SpreadsheetsResource.ValuesResource.GetRequest request = service.Spreadsheets.Values.Get(spreadsheetId, range);
-            ValueRange response = request.Execute();
-            IList<IList<Object>> values = response.Values;
-            if (values != null && values.Count > 0)
+            if (!forceReload && triggerWords != null)
             {
-                foreach (var row in values)
+                return triggerWords;
+            }
+
+            var result = new Dictionary<string, TriggerData>();
+            SpreadsheetsResource.ValuesResource.GetRequest request = service.Spreadsheets.Values.Get(spreadsheetId, triggerListRange);
+            ValueRange response = request.Execute();
+            IList<IList<Object>> rows = response.Values;
+            if (rows != null && rows.Count > 0)
+            {
+                for (int i = 1; i < rows.Count; i++)
                 {
-                    if (row.Count > 0)
+                    if (rows[i].Count > 0)
                     {
-                        string val = row[0].ToString();
-                        if (!string.IsNullOrWhiteSpace(val))
+                        string word = rows[i][0].ToString().ToLower();
+                        string category = rows[i].Count > 1 ? rows[i][1].ToString().ToLower() : null;
+                        string type = rows[i].Count > 2 ? rows[i][2].ToString().ToLower() : null;
+                        if (!string.IsNullOrWhiteSpace(word))
                         {
-                            set.Add(val);
+                            result.Add(word, new TriggerData() { Category = category, Action = Util.GetTriggerActionFromString(type) });
                         }
                     }
                 }
             }
 
-            if (set.Count == 0)
+            if (result.Count == 0)
             {
-                Console.WriteLine("Warning, no \"Simple Words\" found.");
+                Console.WriteLine("Warning, no trigger words found.");
             }
 
-            return set;
+
+            triggerWords = result;
+            return result;
+        }
+
+        public Dictionary<string, ChannelRole> GetChannels(bool forceReload = false)
+        {
+            if (!forceReload && channels != null)
+            {
+                return channels;
+            }
+
+            var result = new Dictionary<string, ChannelRole>();
+            SpreadsheetsResource.ValuesResource.GetRequest request = service.Spreadsheets.Values.Get(spreadsheetId, channelListRange);
+            ValueRange response = request.Execute();
+            IList<IList<Object>> rows = response.Values;
+            if (rows != null && rows.Count > 0)
+            {
+                for (int i = 1; i < rows.Count; i++)
+                {
+                    if (rows[i].Count > 0)
+                    {
+                        string channel = rows[i][0].ToString().ToLower();
+                        string type = rows[i].Count > 1 ? rows[i][1].ToString().ToLower() : null;
+                        if (!string.IsNullOrWhiteSpace(channel))
+                        {
+                            result.Add(channel, Util.GetChannelTypeFromString(type));
+                        }
+                    }
+                }
+            }
+
+            if (result.Count == 0)
+            {
+                Console.WriteLine("Warning, no channel list found.");
+            }
+
+            channels = result;
+            return result;
         }
     }
 }

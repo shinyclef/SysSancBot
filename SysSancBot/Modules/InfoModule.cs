@@ -9,17 +9,20 @@ namespace SysSancBot.Modules
 {
     public class InfoModule : ModuleBase<SocketCommandContext>
     {
-        private readonly PluralService pluralSrv;
+        private readonly StemmingService pluralSrv;
 
         public InfoModule(IServiceProvider services)
         {
-            pluralSrv = services.GetRequiredService<PluralService>();
+            pluralSrv = services.GetRequiredService<StemmingService>();
         }
 
         [Command("Help")]
         public Task Help()
         {
-            string msg = "```Commands:\n- ReloadTriggerLists: Reloads all trigger lists.```";
+            string msg = "```Commands:\n" +
+                "- ReloadTriggers: Reloads the trigger word list.\n" +
+                "- ReloadChannels: Reloads the channel types.\n" +
+                "```";
             return ReplyAsync(msg);
         }
 
@@ -33,6 +36,12 @@ namespace SysSancBot.Modules
         public Task Plural([Remainder] [Summary("The word for which you want the plural form.")] string word)
         {
             return ReplyAsync($"I think the plural form of **{word.ToLower()}** is **{pluralSrv.Pluralize(word.ToLower())}**.");
+        }
+
+        [Command("Stem")]
+        public Task Stem([Remainder] [Summary("The word for which you want the stem.")] string word)
+        {
+            return ReplyAsync($"I think the stem of **{word.ToLower()}** is **{pluralSrv.GetStem(word.ToLower())}**.");
         }
 
         [Command("SetName")]
